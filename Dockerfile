@@ -1,9 +1,9 @@
 ############################################################
-# Dockerfile to run Tactic Containers 
+# Dockerfile to run Tactic Containers
 # Based on Centos 6 image
 ############################################################
 
-FROM centos:centos6
+FROM centos:latest
 MAINTAINER Diego Cortassa <diego@cortassa.net>
 
 ENV REFRESHED_AT 2016-02-14
@@ -29,35 +29,44 @@ RUN yum -y install httpd postgresql postgresql-server postgresql-contrib python-
 RUN /bin/rpm -Uvh http://download.fedoraproject.org/pub/epel/6/i386/epel-release-6-8.noarch.rpm && \
     yum -y install python-setuptools && \
     easy_install supervisor && \
-    mkdir -p /var/log/supervisor && \ 
+    mkdir -p /var/log/supervisor && \
     mkdir -p /etc/supervisor/conf.d/
 ADD supervisord.conf /etc/supervisor/supervisord.conf
+
+#RUN /usr/bin/supervisord -c /etc/supervisor/supervisord.conf
 
 # Ssh server
 # install ssh
 # start and stop the server to make it generate host keys
 RUN yum -y install openssh-server && \
-    service sshd start && \
-    service sshd stop
+    /usr/sbin/sshd && \
+    pkill -9 sshd
 # set root passord at image launch with -e ROOT_PASSWORD=my_secure_password
 ADD setup.sh /usr/local/bin/setup.sh
+RUN yum -y install wget
 
 # Clean up
 RUN yum clean all
 
 # initialize postgresql data files
-RUN service postgresql initdb
+#RUN postgresql-setup initdb
 
 # get and install Tactic
-RUN git clone -b 4.4 https://github.com/Southpaw-TACTIC/TACTIC.git && \
-    cp TACTIC/src/install/postgresql/pg_hba.conf /var/lib/pgsql/data/pg_hba.conf && \
+#RUN git clone -b 4.5 --depth=1 https://github.com/Southpaw-TACTIC/TACTIC.git
+RUN /usr/bin/wget https://github.com/Southpaw-TACTIC/TACTIC/archive/4.5.zip && unzip 4.5.zip
+RUN mv TACTIC-4.5 TACTIC
+
+
+RUN su postgres -c "PGDATA=/var/lib/pgsql/data initdb"
+
+RUN    cp TACTIC/src/install/postgresql/pg_hba.conf /var/lib/pgsql/data/pg_hba.conf && \
     chown postgres:postgres /var/lib/pgsql/data/pg_hba.conf && \
-    service postgresql start && \
+    su postgres -c "PGPORT=5432 pg_ctl start -D /var/lib/pgsql/data" && \
     yes | python TACTIC/src/install/install.py -d && \
-    service postgresql stop && \
+    su postgres -c "/usr/bin/pg_ctl stop -D /var/lib/pgsql/data" && \
     cp /home/apache/tactic_data/config/tactic.conf /etc/httpd/conf.d/ && \
     rm -r TACTIC
-
+RUN rm -f 4.5.zip
 EXPOSE 80 22
 
 # Start Tactic stack
